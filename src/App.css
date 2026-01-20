@@ -1,5 +1,44 @@
+* {
+  font-family: 'MS Sans Serif', 'MS Sans Serif', sans-serif;
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  font-family: 'MS Sans Serif', 'MS Sans Serif', sans-serif;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
 .App {
   text-align: center;
+  font-family: 'MS Sans Serif', 'MS Sans Serif', sans-serif;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Ensure YouTube iframe fills its container */
+.youtube-player-container {
+  position: relative;
+}
+
+.youtube-player-container iframe {
+  width: 100% !important;
+  height: 100% !important;
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: none;
 }
 
 .App-logo {

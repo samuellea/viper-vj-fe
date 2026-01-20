@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import axios from 'axios';
 
 // YouTube Player States
@@ -13,19 +13,44 @@ const PlayerStates = {
 
 const LETTER_KEYS = ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'z', 'x', 'c', 'v', 'b', 'n', 'm'];
 
-export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideoSaved }) {
+export const CustomVideoPlayer = forwardRef(({ videoId, youtubeUrl, initialHotcues, onVideoSaved }, ref) => {
   console.log('CustomVideoPlayer rendered with:', { videoId, youtubeUrl, initialHotcues });
   
   const playerRef = useRef(null);
   const containerRef = useRef(null);
-  const [hotcues, setHotcues] = useState(initialHotcues || {});
-  const hotcuesRef = useRef(initialHotcues || {}); // Keep a ref for latest hotcues value
+  // Normalize hotcues to always be objects { time: number, name?: string }
+  const normalizeHotcues = (hotcues) => {
+    if (!hotcues) return {};
+    const normalized = {};
+    Object.keys(hotcues).forEach(key => {
+      const value = hotcues[key];
+      if (typeof value === 'number') {
+        // Old format: just a number
+        normalized[key] = { time: value, name: '' };
+      } else if (value && typeof value === 'object' && typeof value.time === 'number') {
+        // New format: object with time
+        normalized[key] = { time: value.time, name: value.name || '' };
+      }
+    });
+    return normalized;
+  };
+
+  const [hotcues, setHotcues] = useState(() => normalizeHotcues(initialHotcues));
+  const hotcuesRef = useRef(normalizeHotcues(initialHotcues)); // Keep a ref for latest hotcues value
+  const initialHotcuesRef = useRef(normalizeHotcues(initialHotcues)); // Keep track of initial hotcues for comparison
   const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSettingHotcue, setIsSettingHotcue] = useState(null);
+  const [triggeredHotcue, setTriggeredHotcue] = useState(null); // Track which hotcue was just triggered
   const [isPlayerReady, setIsPlayerReady] = useState(false);
   const isPlayerReadyRef = useRef(false); // Keep a ref for latest ready state
   const timeUpdateIntervalRef = useRef(null);
+  const [editingHotcue, setEditingHotcue] = useState(null); // Track which hotcue label is being edited
+  const [editingLabel, setEditingLabel] = useState(''); // Current label being edited
+  const [isDragging, setIsDragging] = useState(false); // Track if user is dragging progress bar
+  const [dragTime, setDragTime] = useState(0); // Preview time while dragging
+  const progressBarRef = useRef(null); // Ref for progress bar element
 
   // Keep refs in sync with state
   useEffect(() => {
@@ -40,14 +65,68 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
   useEffect(() => {
     if (initialHotcues) {
       console.log('Loading initial hotcues:', initialHotcues);
-      setHotcues(initialHotcues);
-      hotcuesRef.current = initialHotcues;
+      const normalized = normalizeHotcues(initialHotcues);
+      setHotcues(normalized);
+      hotcuesRef.current = normalized;
+      initialHotcuesRef.current = normalized; // Update initial reference
     } else {
       // Clear hotcues if no initial hotcues provided
       setHotcues({});
       hotcuesRef.current = {};
+      initialHotcuesRef.current = {};
     }
   }, [videoId, initialHotcues]);
+
+  // Function to check if hotcues have changed
+  const hasUnsavedChanges = useCallback(() => {
+    const current = hotcuesRef.current;
+    const initial = initialHotcuesRef.current;
+    
+    // Compare keys
+    const currentKeys = Object.keys(current || {});
+    const initialKeys = Object.keys(initial || {});
+    
+    if (currentKeys.length !== initialKeys.length) {
+      return true; // Keys added or removed
+    }
+    
+    // Check each key for changes
+    for (const key of currentKeys) {
+      const currentHotcue = current[key];
+      const initialHotcue = initial[key];
+      
+      if (!initialHotcue) {
+        return true; // New hotcue added
+      }
+      
+      // Compare time
+      const currentTime = typeof currentHotcue === 'number' ? currentHotcue : currentHotcue.time;
+      const initialTime = typeof initialHotcue === 'number' ? initialHotcue : initialHotcue.time;
+      
+      if (currentTime !== initialTime) {
+        return true; // Time changed
+      }
+      
+      // Compare name
+      const currentName = typeof currentHotcue === 'object' ? (currentHotcue.name || '') : '';
+      const initialName = typeof initialHotcue === 'object' ? (initialHotcue.name || '') : '';
+      
+      if (currentName !== initialName) {
+        return true; // Name changed
+      }
+    }
+    
+    // Check for deleted hotcues
+    for (const key of initialKeys) {
+      if (!current[key]) {
+        return true; // Hotcue deleted
+      }
+    }
+    
+    return false;
+  }, []);
+
+  // Note: handleSave is defined later, so we'll update this in a useEffect after handleSave is defined
 
   // Load YouTube IFrame API script
   useEffect(() => {
@@ -91,11 +170,14 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
         playerRef.current = new window.YT.Player(containerRef.current, {
           videoId: videoId,
           playerVars: {
-            controls: 0, // Hide YouTube controls
+            controls: 1, // Show YouTube controls (including native progress bar)
             enablejsapi: 1, // Ensure JS API is enabled
             autoplay: 0,
-            rel: 0,
-            modestbranding: 1
+            rel: 0, // Don't show related videos from other channels
+            modestbranding: 1, // Reduce YouTube branding
+            fs: 0, // Disable fullscreen button
+            playsinline: 1, // Play inline on mobile
+            origin: window.location.origin // Set origin for better control
           },
           events: {
             onReady: (event) => {
@@ -110,6 +192,15 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
               // Ensure playerRef is set to the event target
               playerRef.current = event.target;
               setIsPlayerReady(true);
+              // Get initial duration
+              try {
+                const videoDuration = event.target.getDuration();
+                if (typeof videoDuration === 'number' && !isNaN(videoDuration) && videoDuration > 0) {
+                  setDuration(videoDuration);
+                }
+              } catch (e) {
+                console.warn('Could not get initial duration:', e);
+              }
             },
             onStateChange: (event) => {
               const state = event.data;
@@ -186,6 +277,13 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
               setCurrentTime(time);
             }
           }
+          // Update duration periodically (in case it changes or wasn't available initially)
+          if (typeof playerRef.current.getDuration === 'function') {
+            const videoDuration = playerRef.current.getDuration();
+            if (typeof videoDuration === 'number' && !isNaN(videoDuration) && videoDuration > 0) {
+              setDuration(videoDuration);
+            }
+          }
         } catch (e) {
           // Silently ignore errors - player might not be ready yet
         }
@@ -219,8 +317,12 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
         
         if (currentHotcues[key] !== undefined) {
           // Hotcue already exists - jump to that exact timecode and play from there
-          const hotcueTime = currentHotcues[key];
+          const hotcue = currentHotcues[key];
+          const hotcueTime = typeof hotcue === 'number' ? hotcue : hotcue.time;
           setIsSettingHotcue(null);
+          // Trigger flash animation
+          setTriggeredHotcue(key);
+          setTimeout(() => setTriggeredHotcue(null), 250); // Flash for 0.25s
           try {
             console.log('Jumping to hotcue:', key, 'at time:', hotcueTime);
             // Seek to the exact millisecond timecode
@@ -232,22 +334,27 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
           }
         } else {
           // Hotcue doesn't exist - SET it at the current time (don't play)
-          setIsSettingHotcue(key);
           try {
             const currentTime = currentPlayer.getCurrentTime();
             if (typeof currentTime === 'number' && !isNaN(currentTime)) {
               console.log('Setting hotcue:', key, 'at time:', currentTime);
               // Set the hotcue at the exact current timecode (millisecond precision)
-              const newHotcues = { ...currentHotcues, [key]: currentTime };
+              const newHotcues = { ...currentHotcues, [key]: { time: currentTime, name: '' } };
               setHotcues(newHotcues);
               hotcuesRef.current = newHotcues; // Update ref immediately
-              // Visual feedback flash
-              setTimeout(() => setIsSettingHotcue(null), 300);
+              
+              // Trigger flash animation when setting - flash white
+              setTriggeredHotcue(key);
+              setTimeout(() => {
+                setTriggeredHotcue(null);
+                setIsSettingHotcue(null);
+              }, 250); // Flash for 0.25s, then clear both states
               // Note: We do NOT play the video when setting - just set the hotcue
             }
           } catch (error) {
             console.error('Error setting hotcue:', error);
             setIsSettingHotcue(null);
+            setTriggeredHotcue(null);
           }
         }
       } else if (e.code === 'Space' || e.key === 'k') {
@@ -268,9 +375,13 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
       }
     };
 
-    window.addEventListener('keydown', handleKeyPress);
+    // Add listener to both window and document to catch events even when iframe is focused
+    window.addEventListener('keydown', handleKeyPress, true); // Use capture phase
+    document.addEventListener('keydown', handleKeyPress, true); // Use capture phase
+    
     return () => {
-      window.removeEventListener('keydown', handleKeyPress);
+      window.removeEventListener('keydown', handleKeyPress, true);
+      document.removeEventListener('keydown', handleKeyPress, true);
     };
   }, []); // Empty dependency array - we use refs for latest values
 
@@ -313,16 +424,127 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
     }
   }, [isPlayerReady]); // Include isPlayerReady for debugging
 
-  const handleSeek = useCallback((seconds) => {
+  const handleSeek = useCallback((hotcueValue) => {
     if (!playerRef.current || !isPlayerReady) return;
     
     try {
+      // Handle both old format (number) and new format (object)
+      const seconds = typeof hotcueValue === 'number' ? hotcueValue : hotcueValue.time;
       playerRef.current.seekTo(seconds, true);
       playerRef.current.playVideo();
     } catch (e) {
       console.error('Error seeking:', e);
     }
   }, [isPlayerReady]);
+
+  const calculateSeekTime = useCallback((clientX) => {
+    if (!progressBarRef.current || !duration) return 0;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const clickX = clientX - rect.left;
+    const percentage = Math.max(0, Math.min(1, clickX / rect.width));
+    return percentage * duration;
+  }, [duration]);
+
+  const handleProgressBarMouseDown = useCallback((e) => {
+    if (!playerRef.current || !isPlayerReady || !duration) return;
+    e.preventDefault();
+    setIsDragging(true);
+    const seekTime = calculateSeekTime(e.clientX);
+    setDragTime(seekTime);
+  }, [isPlayerReady, duration, calculateSeekTime]);
+
+  const handleProgressBarMouseMove = useCallback((e) => {
+    if (!isDragging || !duration) return;
+    const seekTime = calculateSeekTime(e.clientX);
+    setDragTime(seekTime);
+  }, [isDragging, duration, calculateSeekTime]);
+
+  const handleProgressBarMouseUp = useCallback((e) => {
+    if (!isDragging || !playerRef.current || !isPlayerReady) return;
+    
+    const seekTime = calculateSeekTime(e.clientX);
+    setIsDragging(false);
+    setDragTime(0);
+    
+    try {
+      playerRef.current.seekTo(seekTime, true);
+      setCurrentTime(seekTime);
+    } catch (error) {
+      console.error('Error seeking via progress bar:', error);
+    }
+  }, [isDragging, isPlayerReady, calculateSeekTime]);
+
+  const handleProgressBarClick = useCallback((e) => {
+    // Only handle click if not dragging (to avoid double-seeking)
+    if (isDragging) return;
+    if (!playerRef.current || !isPlayerReady || !duration) return;
+    
+    const seekTime = calculateSeekTime(e.clientX);
+    
+    try {
+      playerRef.current.seekTo(seekTime, true);
+      setCurrentTime(seekTime);
+    } catch (e) {
+      console.error('Error seeking via progress bar:', e);
+    }
+  }, [isDragging, isPlayerReady, duration, calculateSeekTime]);
+
+  // Handle mouse move and mouse up on document for dragging
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e) => {
+      handleProgressBarMouseMove(e);
+    };
+
+    const handleMouseUp = (e) => {
+      handleProgressBarMouseUp(e);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, handleProgressBarMouseMove, handleProgressBarMouseUp]);
+
+  const handleHotcueLabelClick = (key, hotcue) => {
+    if (!hotcue) return;
+    setEditingHotcue(key);
+    setEditingLabel(typeof hotcue === 'object' ? (hotcue.name || '') : '');
+  };
+
+  const handleHotcueLabelBlur = (key) => {
+    setHotcues(prev => {
+      const newHotcues = { ...prev };
+      if (newHotcues[key]) {
+        const currentHotcue = newHotcues[key];
+        const time = typeof currentHotcue === 'number' ? currentHotcue : currentHotcue.time;
+        newHotcues[key] = { time, name: editingLabel.trim() };
+      }
+      return newHotcues;
+    });
+    const currentHotcue = hotcuesRef.current[key];
+    if (currentHotcue) {
+      const time = typeof currentHotcue === 'number' ? currentHotcue : currentHotcue.time;
+      hotcuesRef.current = { ...hotcuesRef.current, [key]: { time, name: editingLabel.trim() } };
+    }
+    setEditingHotcue(null);
+    setEditingLabel('');
+  };
+
+  const handleHotcueLabelKeyDown = (e, key) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleHotcueLabelBlur(key);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setEditingHotcue(null);
+      setEditingLabel('');
+    }
+  };
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -335,6 +557,7 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
     setHotcues(prev => {
       const newHotcues = { ...prev };
       delete newHotcues[key];
+      hotcuesRef.current = newHotcues; // Update ref immediately
       return newHotcues;
     });
   };
@@ -351,13 +574,24 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
       return;
     }
 
+    // Get username from localStorage
+    const username = localStorage.getItem('username');
+    if (!username) {
+      setSaveMessage({ 
+        type: 'error', 
+        text: 'You must be logged in to save videos'
+      });
+      return;
+    }
+
     setIsSaving(true);
     setSaveMessage(null);
 
     const payload = {
       youtubeUrl,
       videoId,
-      hotcues: hotcuesRef.current
+      hotcues: hotcuesRef.current,
+      username // Include username in payload
     };
 
     console.log('Saving video with payload:', payload);
@@ -371,6 +605,8 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
       });
 
       console.log('Save successful:', response.data);
+      // Update initial hotcues reference after successful save
+      initialHotcuesRef.current = { ...hotcuesRef.current };
       setSaveMessage({ 
         type: 'success', 
         text: response.data.message || 'Video and hotcues saved successfully!' 
@@ -420,7 +656,13 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
     } finally {
       setIsSaving(false);
     }
-  }, [youtubeUrl, videoId]);
+  }, [youtubeUrl, videoId, onVideoSaved]);
+
+  // Expose methods to parent via ref (after handleSave is defined)
+  useImperativeHandle(ref, () => ({
+    hasUnsavedChanges,
+    saveChanges: handleSave
+  }), [hasUnsavedChanges, handleSave]);
 
   if (!videoId) {
     return null;
@@ -433,10 +675,31 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
       marginTop: '20px',
       maxWidth: '1400px',
       margin: '20px auto',
-      padding: '0 20px'
+      padding: '0 20px',
+      alignItems: 'flex-start'
     }}>
       {/* Video Player */}
-      <div className="video-player-wrapper" style={{ flex: '1', minWidth: 0 }}>
+      <div 
+        className="video-player-wrapper" 
+        style={{ flex: '1', minWidth: 0, maxWidth: '100%' }}
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          // Capture keyboard events even when video player wrapper is focused
+          // This ensures hotcues work when clicking on the video
+          const key = e.key.toLowerCase();
+          if (LETTER_KEYS.includes(key) || e.code === 'Space' || e.key === 'k') {
+            // Don't stop propagation - let the window-level handler process it
+            // This wrapper just ensures focus stays on an element that can receive events
+          }
+        }}
+        onClick={(e) => {
+          // When clicking on the video wrapper, ensure it can receive keyboard events
+          // by focusing it (but don't interfere with video player clicks)
+          if (e.target === e.currentTarget || e.target.closest('.youtube-player-container')) {
+            e.currentTarget.focus();
+          }
+        }}
+      >
         <div 
           className="youtube-player-container"
           ref={containerRef} 
@@ -445,14 +708,28 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
             aspectRatio: '16/9',
             backgroundColor: '#000',
             position: 'relative',
-            minHeight: '400px'
+            minHeight: '600px' // Standard YouTube height (increased by 100px from 500px)
           }} 
         />
+        
+        {/* Instructional text */}
+        <p className="hotcue-instruction-text" style={{
+          marginTop: '10px',
+          fontSize: '14px',
+          color: 'white',
+          backgroundColor: '#999',
+          fontStyle: 'italic',
+          textAlign: 'center',
+          padding: '8px',
+          borderRadius: '4px'
+        }}>
+          💡 NB: If hotcues <span style={{ color: 'red' }}>not working</span>, click anywhere on the page outside the video player
+        </p>
         
         {/* Custom Controls */}
         <div className="custom-controls" style={{
           marginTop: '10px',
-          display: 'flex',
+          display: 'none', // Hidden for now, but kept in code
           alignItems: 'center',
           gap: '10px',
           padding: '10px',
@@ -477,24 +754,27 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
           >
             {isPlaying ? '⏸ Pause' : '▶ Play'}
           </button>
-          <div className="current-time-display" style={{ flex: 1, fontSize: '14px', color: '#666' }}>
-            {isPlayerReady ? formatTime(currentTime) : 'Loading...'}
-          </div>
         </div>
       </div>
 
-      {/* Hotcue Panel */}
-      <div className="hotcue-panel" style={{
-        width: '300px',
-        backgroundColor: '#f9f9f9',
-        padding: '15px',
-        borderRadius: '4px',
-        border: '1px solid #ddd',
-        maxHeight: '600px',
-        overflowY: 'auto'
+      {/* Hotcue Panel and Save Button Container */}
+      <div style={{ 
+        width: '345px',
+        display: 'flex',
+        flexDirection: 'column'
       }}>
+        {/* Hotcue Panel */}
+        <div className="hotcue-panel" style={{
+          width: '100%',
+          backgroundColor: '#f9f9f9',
+          padding: '15px',
+          borderRadius: '4px',
+          border: '1px solid #ddd',
+          maxHeight: '600px',
+          overflowY: 'auto'
+        }}>
         <h3 className="hotcue-panel-title" style={{ marginTop: 0, marginBottom: '15px', fontSize: '18px' }}>
-          Hotcues
+        🔥 Hotcues
         </h3>
         <p className="hotcue-panel-description" style={{ fontSize: '12px', color: '#666', marginBottom: '15px' }}>
           <strong>First press:</strong> Sets hotcue at current time<br/>
@@ -505,20 +785,40 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
           {LETTER_KEYS.map(key => {
             const hotcue = hotcues[key];
             const isActive = isSettingHotcue === key;
+            const isTriggered = triggeredHotcue === key;
+            
+            // Determine background color based on state
+            // isTriggered takes highest priority for flash animation
+            let backgroundColor = 'white';
+            let borderColor = '#ddd';
+            let boxShadow = 'none';
+            
+            if (isTriggered) {
+              backgroundColor = '#ffffff'; // Bright white flash when triggered or set
+              borderColor = '#007bff'; // Blue border during flash
+              boxShadow = '0 0 10px rgba(0, 123, 255, 0.5)'; // Glow effect
+            } else if (isActive) {
+              backgroundColor = '#fff3cd'; // Yellow when setting (fallback, but flash should override)
+              borderColor = '#ffc107';
+            } else if (hotcue) {
+              backgroundColor = '#d4edda'; // Green when set
+              borderColor = '#28a745';
+            }
             
             return (
               <div
                 key={key}
-                className={`hotcue-item hotcue-item-${key} ${isActive ? 'hotcue-item-active' : ''} ${hotcue ? 'hotcue-item-set' : 'hotcue-item-unset'}`}
+                className={`hotcue-item hotcue-item-${key} ${isActive ? 'hotcue-item-active' : ''} ${hotcue ? 'hotcue-item-set' : 'hotcue-item-unset'} ${isTriggered ? 'hotcue-item-triggered' : ''}`}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '10px',
                   padding: '8px',
-                  backgroundColor: isActive ? '#fff3cd' : hotcue ? '#d4edda' : 'white',
-                  border: `2px solid ${isActive ? '#ffc107' : hotcue ? '#28a745' : '#ddd'}`,
+                  backgroundColor: backgroundColor,
+                  border: `2px solid ${borderColor}`,
                   borderRadius: '4px',
-                  transition: 'all 0.2s'
+                  boxShadow: boxShadow,
+                  transition: 'background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, all 0.2s' // Smooth transition for flash animation
                 }}
               >
                 <div className={`hotcue-key-badge hotcue-key-${key}`} style={{
@@ -535,11 +835,54 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
                 }}>
                   {key.toUpperCase()}
                 </div>
-                <div className="hotcue-time-display" style={{ flex: 1, fontSize: '14px' }}>
+                <div className="hotcue-time-display" style={{ flex: 1, fontSize: '14px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {hotcue ? (
-                    <span className="hotcue-time-value" style={{ color: '#28a745', fontWeight: 'bold' }}>
-                      {formatTime(hotcue)}
-                    </span>
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="hotcue-time-value" style={{ color: '#28a745', fontWeight: 'bold' }}>
+                          {formatTime(typeof hotcue === 'number' ? hotcue : hotcue.time)}
+                        </span>
+                        {editingHotcue === key ? (
+                          <input
+                            type="text"
+                            value={editingLabel}
+                            onChange={(e) => setEditingLabel(e.target.value)}
+                            onBlur={() => handleHotcueLabelBlur(key)}
+                            onKeyDown={(e) => handleHotcueLabelKeyDown(e, key)}
+                            autoFocus
+                            className="hotcue-label-input"
+                            style={{
+                              flex: 1,
+                              padding: '4px 8px',
+                              fontSize: '12px',
+                              border: '1px solid #007bff',
+                              borderRadius: '3px',
+                              outline: 'none'
+                            }}
+                            placeholder="Label..."
+                          />
+                        ) : (
+                          <span
+                            className="hotcue-label-display"
+                            onClick={() => handleHotcueLabelClick(key, hotcue)}
+                            style={{
+                              flex: 1,
+                              color: (typeof hotcue === 'object' && hotcue.name) ? '#333' : '#999',
+                              fontStyle: (typeof hotcue === 'object' && hotcue.name) ? 'normal' : 'italic',
+                              cursor: 'pointer',
+                              padding: '4px 8px',
+                              borderRadius: '3px',
+                              minHeight: '20px',
+                              display: 'flex',
+                              alignItems: 'center'
+                            }}
+                            title="Click to edit label"
+                          >
+                            {(typeof hotcue === 'object' && hotcue.name) ? hotcue.name : 'Click to add label'}
+                          </span>
+                        )}
+                      </div>
+                    </>
                   ) : (
                     <span className="hotcue-time-unset" style={{ color: '#999', fontStyle: 'italic' }}>
                       Not set
@@ -586,13 +929,13 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
             );
           })}
         </div>
-      </div>
-      
-      {/* Save Button - Outside hotcue panel */}
-      <div style={{ 
-        width: '300px',
-        marginTop: '10px'
-      }}>
+        </div>
+        
+        {/* Save Button - Directly beneath hotcue panel */}
+        <div style={{ 
+          width: '100%',
+          marginTop: '10px'
+        }}>
         <button
           className="save-button"
           onClick={handleSave}
@@ -640,7 +983,8 @@ export function CustomVideoPlayer({ videoId, youtubeUrl, initialHotcues, onVideo
             {saveMessage.text}
           </div>
         )}
+        </div>
       </div>
     </div>
   );
-}
+});

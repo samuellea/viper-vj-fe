@@ -10,18 +10,42 @@ export const VideoSidebar = forwardRef(({ onVideoSelect, selectedVideoId }, ref)
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
-    fetchVideos();
-  }, []);
+    // Fetch videos when component mounts or when username changes
+    const username = localStorage.getItem('username');
+    if (username) {
+      fetchVideos();
+    } else {
+      setLoading(false);
+      setError('You must be logged in to view videos');
+    }
+  }, []); // Only run on mount - username changes will trigger via refresh() call
 
   const fetchVideos = async () => {
     setLoading(true);
     setError(null);
+    
+    // Get username from localStorage
+    const username = localStorage.getItem('username');
+    console.log('VideoSidebar - Fetching videos for username:', username);
+    
+    if (!username) {
+      console.warn('VideoSidebar - No username found in localStorage');
+      setError('You must be logged in to view videos');
+      setLoading(false);
+      return;
+    }
+    
     try {
-      const response = await axios.get('http://localhost:3001/videos');
-      setVideos(response.data);
-      console.log('Fetched videos:', response.data);
+      console.log('VideoSidebar - Making request to /videos with username:', username);
+      const response = await axios.get('http://localhost:3001/videos', {
+        params: { username }
+      });
+      console.log('VideoSidebar - Received response:', response.data);
+      console.log('VideoSidebar - Number of videos:', response.data?.length || 0);
+      setVideos(response.data || []);
     } catch (err) {
-      console.error('Error fetching videos:', err);
+      console.error('VideoSidebar - Error fetching videos:', err);
+      console.error('VideoSidebar - Error response:', err.response?.data);
       setError(err.response?.data?.error || 'Failed to load videos');
     } finally {
       setLoading(false);
@@ -50,10 +74,20 @@ export const VideoSidebar = forwardRef(({ onVideoSelect, selectedVideoId }, ref)
   const handleDeleteConfirm = async () => {
     if (!deleteConfirm) return;
 
+    // Get username from localStorage
+    const username = localStorage.getItem('username');
+    if (!username) {
+      setError('You must be logged in to delete videos');
+      setDeleteConfirm(null);
+      return;
+    }
+
     setIsDeleting(true);
     try {
       console.log('Deleting video:', deleteConfirm.videoId);
-      await axios.delete(`http://localhost:3001/videos/${deleteConfirm.videoId}`);
+      await axios.delete(`http://localhost:3001/videos/${deleteConfirm.videoId}`, {
+        params: { username }
+      });
       console.log('Video deleted successfully');
       
       // Refresh the video list

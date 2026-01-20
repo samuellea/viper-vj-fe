@@ -1,65 +1,89 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import './App.css';
-import { YouTubeInput } from './YouTubeInput';
-import { CustomVideoPlayer } from './CustomVideoPlayer';
-import { VideoSidebar } from './VideoSidebar';
+import { Login } from './Login';
+import { Signup } from './Signup';
+import { MainApp } from './MainApp';
 
-function App() {
-  const [videoId, setVideoId] = useState(null);
-  const [youtubeUrl, setYoutubeUrl] = useState(null);
-  const [hotcues, setHotcues] = useState(null);
-  const sidebarRef = useRef(null);
+// Protected Route Component
+function ProtectedRoute({ children }) {
+  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+  
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  return children;
+}
 
-  const handleVideoSubmit = (id, url) => {
-    setVideoId(id);
-    setYoutubeUrl(url);
-    setHotcues(null); // Clear hotcues when loading new video
+// Login Route Component with navigation
+function LoginRoute() {
+  const navigate = useNavigate();
+  const [isAuthenticated, setIsAuthenticated] = useState(
+    localStorage.getItem('isAuthenticated') === 'true'
+  );
+
+  useEffect(() => {
+    // Check if already authenticated
+    if (isAuthenticated) {
+      navigate('/', { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
+
+  const handleLogin = (userData) => {
+    setIsAuthenticated(true);
+    navigate('/', { replace: true });
   };
 
-  const handleVideoSelect = useCallback((video) => {
-    if (!video) {
-      // Clear selection
-      setVideoId(null);
-      setYoutubeUrl(null);
-      setHotcues(null);
-      return;
-    }
-    console.log('Loading video from sidebar:', video);
-    setVideoId(video.videoId);
-    setYoutubeUrl(video.youtubeUrl);
-    setHotcues(video.hotcues || {}); // Load existing hotcues
-  }, []);
+  // If already authenticated, don't show login page
+  if (isAuthenticated) {
+    return null;
+  }
 
-  const handleVideoSaved = useCallback(() => {
-    // Refresh sidebar after saving
-    if (sidebarRef.current && sidebarRef.current.refresh) {
-      sidebarRef.current.refresh();
-    }
+  return <Login onLogin={handleLogin} />;
+}
+
+function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    // Check for cached credentials on mount
+    const authStatus = localStorage.getItem('isAuthenticated') === 'true';
+    setIsAuthenticated(authStatus);
   }, []);
 
   return (
-    <div className="App" style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      <VideoSidebar 
-        ref={sidebarRef}
-        onVideoSelect={handleVideoSelect} 
-        selectedVideoId={videoId} 
-      />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
-        <div style={{ padding: '20px' }}>
-          <h1 className="app-title">YouTube Video Player</h1>
-          <YouTubeInput onVideoSubmit={handleVideoSubmit} />
-          {videoId && (
-            <CustomVideoPlayer 
-              key={videoId} 
-              videoId={videoId} 
-              youtubeUrl={youtubeUrl}
-              initialHotcues={hotcues}
-              onVideoSaved={handleVideoSaved}
-            />
-          )}
-        </div>
-      </div>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route 
+          path="/login" 
+          element={<LoginRoute />} 
+        />
+        <Route
+          path="/signup"
+          element={<Signup />}
+        />
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <MainApp />
+            </ProtectedRoute>
+          }
+        />
+        {/* Redirect any unknown routes to login if not authenticated, otherwise to home */}
+        <Route
+          path="*"
+          element={
+            isAuthenticated ? (
+              <Navigate to="/" replace />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
