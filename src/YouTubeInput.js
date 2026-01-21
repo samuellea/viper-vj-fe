@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { extractYouTubeVideoId, isValidYouTubeUrl } from './YouTubePlayer';
+import { extractYouTubeVideoId } from './YouTubePlayer';
 
 export function YouTubeInput({ onVideoSubmit }) {
   const [url, setUrl] = useState('');

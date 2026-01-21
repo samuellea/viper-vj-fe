@@ -39,7 +39,7 @@ export const CustomVideoPlayer = forwardRef(({ videoId, youtubeUrl, initialHotcu
   const [hotcues, setHotcues] = useState(() => normalizeHotcues(initialHotcues));
   const hotcuesRef = useRef(normalizeHotcues(initialHotcues)); // Keep a ref for latest hotcues value
   const initialHotcuesRef = useRef(normalizeHotcues(initialHotcues)); // Keep track of initial hotcues for comparison
-  const [currentTime, setCurrentTime] = useState(0);
+  const [, setCurrentTime] = useState(0); // currentTime value not used, only setter
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isSettingHotcue, setIsSettingHotcue] = useState(null);
@@ -50,7 +50,7 @@ export const CustomVideoPlayer = forwardRef(({ videoId, youtubeUrl, initialHotcu
   const [editingHotcue, setEditingHotcue] = useState(null); // Track which hotcue label is being edited
   const [editingLabel, setEditingLabel] = useState(''); // Current label being edited
   const [isDragging, setIsDragging] = useState(false); // Track if user is dragging progress bar
-  const [dragTime, setDragTime] = useState(0); // Preview time while dragging
+  const [, setDragTime] = useState(0); // dragTime value not used, only setter
   const progressBarRef = useRef(null); // Ref for progress bar element
 
   // Keep refs in sync with state
@@ -446,14 +446,6 @@ export const CustomVideoPlayer = forwardRef(({ videoId, youtubeUrl, initialHotcu
     return percentage * duration;
   }, [duration]);
 
-  const handleProgressBarMouseDown = useCallback((e) => {
-    if (!playerRef.current || !isPlayerReady || !duration) return;
-    e.preventDefault();
-    setIsDragging(true);
-    const seekTime = calculateSeekTime(e.clientX);
-    setDragTime(seekTime);
-  }, [isPlayerReady, duration, calculateSeekTime]);
-
   const handleProgressBarMouseMove = useCallback((e) => {
     if (!isDragging || !duration) return;
     const seekTime = calculateSeekTime(e.clientX);
@@ -474,21 +466,6 @@ export const CustomVideoPlayer = forwardRef(({ videoId, youtubeUrl, initialHotcu
       console.error('Error seeking via progress bar:', error);
     }
   }, [isDragging, isPlayerReady, calculateSeekTime]);
-
-  const handleProgressBarClick = useCallback((e) => {
-    // Only handle click if not dragging (to avoid double-seeking)
-    if (isDragging) return;
-    if (!playerRef.current || !isPlayerReady || !duration) return;
-    
-    const seekTime = calculateSeekTime(e.clientX);
-    
-    try {
-      playerRef.current.seekTo(seekTime, true);
-      setCurrentTime(seekTime);
-    } catch (e) {
-      console.error('Error seeking via progress bar:', e);
-    }
-  }, [isDragging, isPlayerReady, duration, calculateSeekTime]);
 
   // Handle mouse move and mouse up on document for dragging
   useEffect(() => {
