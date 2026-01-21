@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import axios from 'axios';
+import API_URL from './config';
 import './Login.css';
 
 export function Login({ onLogin }) {
@@ -7,10 +9,12 @@ export function Login({ onLogin }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasError, setHasError] = useState(false); // Track if we should show red borders
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setHasError(false);
     
     if (!username || !password) {
       setError('Please enter both username and password');
@@ -20,15 +24,22 @@ export function Login({ onLogin }) {
     setIsSubmitting(true);
 
     try {
-      // TODO: Replace with actual authentication API call
-      // For now, we'll just store credentials in localStorage
-      // In a real app, you'd call your backend API here
       console.log('Login attempt:', { username });
       
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Call backend API to authenticate user
+      const response = await axios.post(`${API_URL}/login`, {
+        username,
+        password
+      }, {
+        timeout: 10000,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log('Login successful:', response.data);
       
-      // Store credentials in localStorage
+      // Store credentials in localStorage after successful login
       localStorage.setItem('username', username);
       localStorage.setItem('isAuthenticated', 'true');
       
@@ -37,10 +48,33 @@ export function Login({ onLogin }) {
         onLogin({ username });
       }
     } catch (err) {
-      setError(err.message || 'Login failed. Please try again.');
+      console.error('Login error:', err);
+      
+      if (axios.isAxiosError(err) && err.response) {
+        // Server responded with error
+        const errorData = err.response.data;
+        const errorMessage = errorData.error || 'Login failed. Please try again.';
+        setError(errorMessage);
+        
+        // Show red borders if user doesn't exist
+        if (errorData.type === 'USER_NOT_FOUND') {
+          setHasError(true);
+        }
+      } else if (err.request) {
+        // Request was made but no response received
+        setError('No response from server. Backend might not be running.');
+      } else {
+        // Something else happened
+        setError(err.message || 'Login failed. Please try again.');
+      }
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Remove error styling when user focuses on inputs
+  const handleInputFocus = () => {
+    setHasError(false);
   };
 
   return (
@@ -68,9 +102,10 @@ export function Login({ onLogin }) {
             <input
               id="username"
               type="text"
-              className="form-input"
+              className={`form-input ${hasError ? 'form-input-error' : ''}`}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              onFocus={handleInputFocus}
               placeholder="Enter your username"
               disabled={isSubmitting}
               autoComplete="username"
@@ -85,9 +120,10 @@ export function Login({ onLogin }) {
             <input
               id="password"
               type="password"
-              className="form-input"
+              className={`form-input ${hasError ? 'form-input-error' : ''}`}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              onFocus={handleInputFocus}
               placeholder="Enter your password"
               disabled={isSubmitting}
               autoComplete="current-password"

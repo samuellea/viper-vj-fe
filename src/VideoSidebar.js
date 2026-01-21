@@ -1,5 +1,6 @@
 import { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
 import axios from 'axios';
+import API_URL from './config';
 
 export const VideoSidebar = forwardRef(({ onVideoSelect, selectedVideoId }, ref) => {
   const [videos, setVideos] = useState([]);
@@ -37,7 +38,7 @@ export const VideoSidebar = forwardRef(({ onVideoSelect, selectedVideoId }, ref)
     
     try {
       console.log('VideoSidebar - Making request to /videos with username:', username);
-      const response = await axios.get('http://localhost:3001/videos', {
+      const response = await axios.get(`${API_URL}/videos`, {
         params: { username }
       });
       console.log('VideoSidebar - Received response:', response.data);
@@ -85,7 +86,7 @@ export const VideoSidebar = forwardRef(({ onVideoSelect, selectedVideoId }, ref)
     setIsDeleting(true);
     try {
       console.log('Deleting video:', deleteConfirm.videoId);
-      await axios.delete(`http://localhost:3001/videos/${deleteConfirm.videoId}`, {
+      await axios.delete(`${API_URL}/videos/${deleteConfirm.videoId}`, {
         params: { username }
       });
       console.log('Video deleted successfully');

@@ -114,6 +114,37 @@ export function MainApp() {
     setPendingAction(null);
   }, []);
 
+  const handleUnsavedModalDiscard = useCallback(() => {
+    // Discard changes and revert to initial state
+    if (playerRef.current && playerRef.current.discardChanges) {
+      playerRef.current.discardChanges();
+    }
+    
+    // Close modal
+    setShowUnsavedModal(false);
+    
+    // Navigate to pending video immediately
+    if (pendingAction === 'select' && pendingVideo) {
+      if (!pendingVideo) {
+        setVideoId(null);
+        setYoutubeUrl(null);
+        setHotcues(null);
+      } else {
+        setVideoId(pendingVideo.videoId);
+        setYoutubeUrl(pendingVideo.youtubeUrl);
+        setHotcues(pendingVideo.hotcues || {});
+      }
+    } else if (pendingAction === 'navigate' && pendingVideo) {
+      setVideoId(pendingVideo.videoId);
+      setYoutubeUrl(pendingVideo.youtubeUrl);
+      setHotcues(pendingVideo.hotcues || null);
+    }
+    
+    // Clear pending state
+    setPendingVideo(null);
+    setPendingAction(null);
+  }, [pendingVideo, pendingAction]);
+
   // Handle browser navigation (beforeunload)
   useEffect(() => {
     const handleBeforeUnload = (e) => {
@@ -221,7 +252,7 @@ export function MainApp() {
                 <p style={{ marginBottom: '25px', fontSize: '14px' }}>
                   You've made unsaved changes! Want to save?
                 </p>
-                <div style={{ display: 'flex', justifyContent: 'center', gap: '15px' }}>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '15px', flexWrap: 'wrap' }}>
                   <button
                     onClick={handleUnsavedModalSave}
                     style={{
@@ -236,6 +267,21 @@ export function MainApp() {
                     }}
                   >
                     Save
+                  </button>
+                  <button
+                    onClick={handleUnsavedModalDiscard}
+                    style={{
+                      padding: '10px 20px',
+                      fontSize: '16px',
+                      backgroundColor: '#dc3545',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    Discard Changes
                   </button>
                   <button
                     onClick={handleUnsavedModalCancel}

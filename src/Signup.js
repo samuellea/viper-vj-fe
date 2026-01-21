@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import API_URL from './config';
 import './Login.css';
 
 export function Signup() {
@@ -43,7 +44,7 @@ export function Signup() {
       console.log('Signup attempt:', { username });
       
       // Call backend API to create user
-      const response = await axios.post('http://localhost:3001/signup', {
+      const response = await axios.post(`${API_URL}/signup`, {
         username,
         password
       }, {

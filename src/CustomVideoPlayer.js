@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import axios from 'axios';
+import API_URL from './config';
 
 // YouTube Player States
 const PlayerStates = {
@@ -597,7 +598,7 @@ export const CustomVideoPlayer = forwardRef(({ videoId, youtubeUrl, initialHotcu
     console.log('Saving video with payload:', payload);
 
     try {
-      const response = await axios.post('http://localhost:3001/videos', payload, {
+      const response = await axios.post(`${API_URL}/videos`, payload, {
         timeout: 10000, // 10 second timeout
         headers: {
           'Content-Type': 'application/json'
@@ -658,11 +659,21 @@ export const CustomVideoPlayer = forwardRef(({ videoId, youtubeUrl, initialHotcu
     }
   }, [youtubeUrl, videoId, onVideoSaved]);
 
+  // Function to discard changes and revert to initial hotcues
+  const discardChanges = useCallback(() => {
+    // Reset hotcues to initial state
+    const initial = initialHotcuesRef.current;
+    setHotcues(initial);
+    hotcuesRef.current = initial;
+    console.log('Discarded changes, reverted to initial hotcues:', initial);
+  }, []);
+
   // Expose methods to parent via ref (after handleSave is defined)
   useImperativeHandle(ref, () => ({
     hasUnsavedChanges,
-    saveChanges: handleSave
-  }), [hasUnsavedChanges, handleSave]);
+    saveChanges: handleSave,
+    discardChanges
+  }), [hasUnsavedChanges, handleSave, discardChanges]);
 
   if (!videoId) {
     return null;
@@ -723,7 +734,7 @@ export const CustomVideoPlayer = forwardRef(({ videoId, youtubeUrl, initialHotcu
           padding: '8px',
           borderRadius: '4px'
         }}>
-          💡 NB: If hotcues <span style={{ color: 'red' }}>not working</span>, click anywhere on the page outside the video player
+          💡 NB: If hotcues <span style={{ color: '#8B0000' }}>not working</span>, click anywhere on the page outside the video player
         </p>
         
         {/* Custom Controls */}
